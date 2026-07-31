@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hoodgrow-x402-aa"
+version = "0.1.0"
+description = "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges — smart-wallet signatures don't yet settle on today's facilitators."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "HoodGrow" }]
+keywords = [
+  "x402",
+  "account-abstraction",
+  "erc-4337",
+  "smart-wallet",
+  "agent",
+  "ai-agent",
+  "eip-3009",
+  "base",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Office/Business :: Financial",
+]
+dependencies = [
+  "requests>=2.31.0",
+  "eth-account>=0.13.0",
+  "x402[requests,evm]>=2.17.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "responses>=0.25.0"]
+
+[project.urls]
+Homepage = "https://www.hoodgrow.com"
+Documentation = "https://github.com/MeMikko/hoodgrow-x402-aa#readme"
+Repository = "https://github.com/MeMikko/hoodgrow-x402-aa"
+Issues = "https://github.com/MeMikko/hoodgrow-x402-aa/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hoodgrow_x402_aa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
