@@ -22,6 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A git tag is just a label — the publish step reads whatever
+      # pyproject.toml says, not the tag. Tagging vX.Y.Z without bumping
+      # pyproject.toml republishes the old version and PyPI rejects it
+      # (versions are immutable) — fail loudly here instead of burning a
+      # release cycle discovering that in the publish step.
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Release tag is v$TAG_VERSION but pyproject.toml version is $PKG_VERSION — bump pyproject.toml and re-tag."
+            exit 1
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
