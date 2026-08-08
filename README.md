@@ -1,4 +1,4 @@
-# hoodgrow-x402-aa
+# x402-aa-wallet
 
 **The easiest way for an ERC-4337 / account-abstraction agent to pay x402
 API calls — with a dedicated, non-custodial EOA, since its smart-wallet
@@ -7,8 +7,9 @@ signature doesn't work with x402 yet.**
 A lightweight, typed SDK: generate a spend wallet, fund it from your
 agent's own smart wallet, and every request through it pays x402
 (HTTP 402) challenges automatically — retried and returned, no manual
-handling — against **any** x402 merchant, not just
-[HoodGrow](https://www.hoodgrow.com).
+handling — against **any** x402 merchant. Originally built for
+[HoodGrow](https://www.hoodgrow.com) (see "Sponsored by" below), and works
+the same way against any other x402 API.
 
 ```mermaid
 flowchart LR
@@ -23,22 +24,28 @@ flowchart LR
 
 - 🤖 Built for ERC-4337 / account-abstraction agents
 - 💳 Automatic x402 payment handling — detect a 402, pay, retry, transparently
-- 🔒 Non-custodial — the private key never leaves your process
+- 💰 Optional `max_amount_usd` spend cap — a real enforcement boundary, not just a docs warning
+- 🔒 Non-custodial — the private key never leaves your process, and is excluded from `repr()` (safe to log the wallet by accident)
 - ⚡ Minimal dependencies (`eth-account`, `requests`, `x402`)
-- 🌐 Works against any x402-compatible API, not just HoodGrow
+- 🌐 Works against any x402-compatible API
 - 📦 Fully typed
 - 🟦 TypeScript implementation also available (see Related projects)
 
 ## Installation
 
 ```bash
-pip install hoodgrow-x402-aa
+pip install x402-aa-wallet
 ```
+
+> Formerly published as `hoodgrow-x402-aa`, importable as
+> `hoodgrow_x402_aa` — same code, same maintainers, new name to reflect
+> that it's a general-purpose x402 utility, not a HoodGrow-specific
+> client. See "Sponsored by" below.
 
 ## Quick start
 
 ```python
-from hoodgrow_x402_aa import create_spend_wallet, get_usdc_balance, x402_session
+from x402_aa_wallet import create_spend_wallet, get_usdc_balance, x402_session
 
 # 1. Generate a dedicated spend wallet — locally, once.
 wallet = create_spend_wallet()
@@ -53,7 +60,10 @@ print("fund this address:", wallet.address)
 balance = get_usdc_balance(wallet.address)
 
 # 4. Pay any x402 endpoint with it — payment happens automatically.
-session = x402_session(wallet)
+#    max_amount_usd is optional but strongly recommended for autonomous
+#    use: it refuses to pay any single challenge above this amount
+#    instead of trusting whatever the server's 402 response asks for.
+session = x402_session(wallet, max_amount_usd=0.5)
 resp = session.get("https://www.hoodgrow.com/api/agent/token/NVDA")
 print(resp.json())
 ```
@@ -61,7 +71,7 @@ print(resp.json())
 Restarting your agent? Rehydrate the same wallet from the key you stored:
 
 ```python
-from hoodgrow_x402_aa import spend_wallet_from_private_key
+from x402_aa_wallet import spend_wallet_from_private_key
 
 wallet = spend_wallet_from_private_key(YOUR_STORED_PRIVATE_KEY)
 ```
@@ -94,12 +104,33 @@ That's what this package does.
 - The private key is returned to you once, in memory. Store it yourself
   (env var, secret manager) — this library keeps no copy after the call
   returns.
+- `SpendWallet` excludes `private_key` from its `repr()` — direct
+  attribute access (`wallet.private_key`) still works, but
+  `print(wallet)`, an unhandled exception's traceback, or a logging call
+  that stringifies the object won't show it.
 - Funding the spend wallet is **your** agent's job, using **your** agent's
   own smart-wallet infrastructure. This library never moves funds itself —
   it only tells you the address to send to and (via `get_usdc_balance`)
   how much is there.
 - The published package is open source. Don't trust this description —
-  read `src/hoodgrow_x402_aa/`, it's short.
+  read `src/x402_aa_wallet/`, it's short.
+
+## Spend cap
+
+`x402_session` accepts `max_amount_usd`:
+
+```python
+session = x402_session(wallet, max_amount_usd=0.10)
+```
+
+Without it, `x402_session` pays whatever a 402 response asks for — a
+misbehaving or compromised merchant returning a much larger amount than
+expected gets paid in full, silently. With `max_amount_usd` set, a payment
+requirement above the cap is filtered out before signing (via a real
+`x402ClientSync` policy, not a client-side amount check bolted on after
+the fact), and if that leaves nothing payable, the request raises instead
+of proceeding. Assumes the asset is USDC (6 decimals) — the only asset
+x402's "exact" scheme settles today.
 
 ## API
 
@@ -108,7 +139,7 @@ That's what this package does.
 | `create_spend_wallet()` | A new `SpendWallet(address, private_key, account)` |
 | `spend_wallet_from_private_key(key)` | Rehydrates a `SpendWallet` from a key you already have |
 | `get_usdc_balance(address, rpc_url=DEFAULT_BASE_RPC_URL)` | USDC balance (float, human units) on Base |
-| `x402_session(wallet)` | A `requests.Session` that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, an `eth_account` `LocalAccount`, or a raw private key string |
+| `x402_session(wallet, *, max_amount_usd=None, network=NETWORK)` | A `requests.Session` that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, an `eth_account` `LocalAccount`, or a raw private key string. `max_amount_usd` — see "Spend cap" above; `network` overrides the default `eip155:8453` (Base mainnet) |
 
 `get_usdc_balance` talks to Base over plain JSON-RPC (`eth_call`) — no
 `web3.py` dependency, one read-only call. Override `rpc_url` if you run
@@ -129,15 +160,20 @@ your own node.
 Every payment `x402_session` makes is real USDC on Base mainnet — not
 reversible. Only fund the spend wallet with what you're willing to spend,
 and never reuse an EOA that also holds funds you care about for anything
-else.
+else. Set `max_amount_usd` (see "Spend cap" above) for any autonomous/agent
+use — don't rely on funding discipline alone as the only safety boundary.
+
+## Sponsored by
+
+Built and maintained by the team behind
+[HoodGrow](https://www.hoodgrow.com) — stock token data for Robinhood
+Chain — to pay their own [x402-protected API](https://www.hoodgrow.com/api-access).
+Released as a standalone, general-purpose tool because the AA/x402 gap
+this solves isn't specific to HoodGrow.
 
 ## Related projects
 
-- [HoodGrow](https://www.hoodgrow.com) — stock token data for Robinhood
-  Chain, the project this SDK was built for
-- [HoodGrow API](https://www.hoodgrow.com/api-access) — the x402-protected
-  endpoints this SDK was built to pay for
-- [hoodgrow-x402-aa (TypeScript)](https://www.npmjs.com/package/hoodgrow-x402-aa) —
+- [x402-aa-wallet (TypeScript)](https://www.npmjs.com/package/x402-aa-wallet) —
   TypeScript implementation
 - [x402](https://www.x402.org) — the HTTP 402 payment protocol
 

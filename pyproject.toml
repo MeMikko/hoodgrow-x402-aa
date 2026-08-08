@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hoodgrow-x402-aa"
-version = "0.1.0"
-description = "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges — smart-wallet signatures don't yet settle on today's facilitators."
+name = "x402-aa-wallet"
+version = "0.2.0"
+description = "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges against any x402 merchant — smart-wallet signatures don't yet settle on today's facilitators. Optional max_amount_usd spend cap."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -19,6 +19,7 @@ keywords = [
   "ai-agent",
   "eip-3009",
   "base",
+  "wallet",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -42,13 +43,13 @@ dependencies = [
 dev = ["pytest>=8.0.0", "responses>=0.25.0"]
 
 [project.urls]
-Homepage = "https://www.hoodgrow.com"
+Homepage = "https://github.com/MeMikko/hoodgrow-x402-aa#readme"
 Documentation = "https://github.com/MeMikko/hoodgrow-x402-aa#readme"
 Repository = "https://github.com/MeMikko/hoodgrow-x402-aa"
 Issues = "https://github.com/MeMikko/hoodgrow-x402-aa/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hoodgrow_x402_aa"]
+packages = ["src/x402_aa_wallet"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

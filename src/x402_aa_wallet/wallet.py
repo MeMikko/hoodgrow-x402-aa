@@ -21,13 +21,13 @@ else.
 Non-custodial, by construction: this module never transmits, logs, or
 persists a private key anywhere. Key generation happens entirely inside
 your own process via eth_account; the private key is returned to YOU and
-exists only in your process's memory unless you choose to store it.
-hoodgrow-x402-aa (and HoodGrow) have no visibility into it, ever.
+exists only in your process's memory unless you choose to store it. This
+package (and HoodGrow, who sponsors it) have no visibility into it, ever.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
@@ -43,9 +43,15 @@ class SpendWallet:
     """
 
     address: str
-    private_key: str
+    #: Excluded from repr() (repr=False) — dataclasses generate a __repr__
+    #: that prints every field by default, and a frozen dataclass's
+    #: private_key printed via print()/logging/an unhandled exception's
+    #: traceback is exactly the kind of accidental leak this library
+    #: exists to avoid. Direct attribute access (wallet.private_key) is
+    #: completely unaffected — this only changes what repr() shows.
+    private_key: str = field(repr=False)
     account: LocalAccount
-    """Ready to pass straight into :func:`hoodgrow_x402_aa.x402_session`."""
+    """Ready to pass straight into :func:`x402_aa_wallet.x402_session`."""
 
 
 def create_spend_wallet() -> SpendWallet:

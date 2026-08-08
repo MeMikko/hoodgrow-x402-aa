@@ -1,6 +1,6 @@
 import re
 
-from hoodgrow_x402_aa import SpendWallet, create_spend_wallet, spend_wallet_from_private_key
+from x402_aa_wallet import SpendWallet, create_spend_wallet, spend_wallet_from_private_key
 
 HEX40 = re.compile(r"^0x[0-9a-fA-F]{40}$")
 HEX64 = re.compile(r"^0x[0-9a-fA-F]{64}$")

@@ -1,7 +1,7 @@
 import pytest
 import responses
 
-from hoodgrow_x402_aa import DEFAULT_BASE_RPC_URL, get_usdc_balance
+from x402_aa_wallet import DEFAULT_BASE_RPC_URL, get_usdc_balance
 
 ADDRESS = "0x1234567890123456789012345678901234567890"
 
