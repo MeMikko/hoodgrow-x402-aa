@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     # Must match the "Environment name" set on the pending publisher at
     # pypi.org -> Your projects -> Publishing -> Add a new pending
-    # publisher (PyPI project name "hoodgrow-x402-aa", owner "MeMikko",
-    # repo "hoodgrow-x402-aa", workflow "publish.yml", environment
+    # publisher (PyPI project name "x402-aa-wallet", owner "MeMikko",
+    # repo "x402-aa-wallet-py", workflow "publish.yml", environment
     # "pypi"). PyPI trusted publishing (unlike npm's) works for a
     # project's very first release — no token to create or store at all.
     environment: pypi
