@@ -91,12 +91,14 @@ def x402_session(
             fund this wallet with what you're willing to spend, and never
             reuse an EOA that also holds other funds you care about.
         max_amount_usd: refuse to pay any single 402 challenge above this
-            USD amount (assumes the asset is USDC — the only asset x402's
-            "exact" scheme settles today). Without this, the session pays
-            whatever the server's 402 response asks for — a misbehaving
-            or compromised merchant returning far more than expected gets
-            paid in full, silently. Recommended for any caller giving an
-            agent autonomous spending.
+            USD amount. Without this, the session pays whatever the
+            server's 402 response asks for — a misbehaving or compromised
+            merchant returning far more than expected gets paid in full,
+            silently. Recommended for any caller giving an agent
+            autonomous spending. Only evaluates a requirement whose asset
+            is a known 6-decimal Circle USDC deployment (see
+            _KNOWN_USDC_ADDRESSES) — a requirement on any other asset is
+            refused outright, not evaluated with a guessed decimal count.
         network: override the network this wallet pays on — CAIP-2 form.
             Defaults to `NETWORK` (Base mainnet). Only Base/EVM
             "exact"-scheme payments are supported by this library today
