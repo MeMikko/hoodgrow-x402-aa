@@ -64,6 +64,13 @@ balance = get_usdc_balance(wallet.address)
 #    use: it refuses to pay any single challenge above this amount
 #    instead of trusting whatever the server's 402 response asks for.
 session = x402_session(wallet, max_amount_usd=0.5)
+
+# First call: HoodGrow's own hello-world endpoint — $0.001, no API key, a
+# real 402 challenge and settlement so you can watch the whole flow work.
+ping = session.get("https://www.hoodgrow.com/api/agent/ping")
+print(ping.json())
+
+# Then: real data, same wallet, same call shape.
 resp = session.get("https://www.hoodgrow.com/api/agent/token/NVDA")
 print(resp.json())
 ```
@@ -78,21 +85,15 @@ wallet = spend_wallet_from_private_key(YOUR_STORED_PRIVATE_KEY)
 
 ## Why this exists
 
-x402's "exact" EVM scheme settles payment via EIP-3009
-`transferWithAuthorization`, which recovers the payer's address from a
-plain secp256k1 (ECDSA) signature. An account-abstraction agent's owner
-key is often a P256/WebAuthn passkey — a different curve entirely, not
-`ecrecover`-compatible — or even when it is secp256k1, the recovered
-address is the *owner's*, not the smart wallet's own address, which the
-facilitator's `from`-address check rejects. Full ERC-1271/ERC-6492
-smart-wallet support is an open, unshipped feature across today's x402
-facilitators — see
-[coinbase/x402#639](https://github.com/coinbase/x402/issues/639).
-
-The fix isn't routing your AA wallet's signature through x402 directly —
-it's giving your agent a small, dedicated EOA it funds itself, purely for
-x402 spending, separate from whatever wallet it uses for everything else.
-That's what this package does.
+x402's "exact" EVM scheme settles payment via an EIP-3009 ECDSA signature,
+which an account-abstraction owner key (often a P256/WebAuthn passkey, or
+even secp256k1 but the wrong address) usually can't produce — full
+ERC-1271/ERC-6492 smart-wallet support is still an open, unshipped
+facilitator feature (see
+[coinbase/x402#639](https://github.com/coinbase/x402/issues/639)). The fix
+is giving the agent a small, dedicated EOA it funds itself, purely for
+x402 spending. Full writeup:
+[hoodgrow.com/blog/x402-account-abstraction-eoa](https://www.hoodgrow.com/blog/x402-account-abstraction-eoa).
 
 ## Non-custodial — read this before using it
 
@@ -173,8 +174,14 @@ this solves isn't specific to HoodGrow.
 
 ## Related projects
 
+Once your agent has a wallet that pays for itself, the next step is an
+agent that already knows what to call:
+
+- [hoodgrow-mcp](https://www.npmjs.com/package/hoodgrow-mcp) — an MCP
+  server for HoodGrow's stock-token API. Free tier, no signup required for
+  a key.
 - [x402-aa-wallet (TypeScript)](https://www.npmjs.com/package/x402-aa-wallet) —
-  TypeScript implementation
+  TypeScript implementation of this package
 - [x402](https://www.x402.org) — the HTTP 402 payment protocol
 
 ## Development

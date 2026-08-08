@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "HoodGrow" }]
+maintainers = [{ name = "HoodGrow" }]
 keywords = [
   "x402",
   "account-abstraction",
@@ -47,6 +48,7 @@ Homepage = "https://github.com/MeMikko/hoodgrow-x402-aa#readme"
 Documentation = "https://github.com/MeMikko/hoodgrow-x402-aa#readme"
 Repository = "https://github.com/MeMikko/hoodgrow-x402-aa"
 Issues = "https://github.com/MeMikko/hoodgrow-x402-aa/issues"
+Funding = "https://www.hoodgrow.com/api-access"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/x402_aa_wallet"]
