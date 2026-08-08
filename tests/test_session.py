@@ -35,7 +35,7 @@ def test_x402_session_accepts_a_local_account():
     _assert_payment_adapter_mounted(x402_session(wallet.account))
 
 
-def _payment_required_header(amount_atomic: str) -> str:
+def _payment_required_header(amount_atomic: str, asset: str | None = None) -> str:
     """A real, base64-encoded PAYMENT-REQUIRED header (v2 protocol) — the
     same wire format HoodGrow's own endpoints use, not a JSON-body v1
     shortcut. camelCase keys confirmed by dumping the real
@@ -47,7 +47,7 @@ def _payment_required_header(amount_atomic: str) -> str:
             {
                 "scheme": "exact",
                 "network": "eip155:8453",
-                "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                "asset": asset or "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                 "amount": amount_atomic,
                 "payTo": "0x8520B3693a2Cf3c2bEa3a505Af3A9c1b093954c7",
                 "maxTimeoutSeconds": 60,
@@ -122,4 +122,28 @@ def test_x402_session_with_max_amount_usd_refuses_to_pay_a_challenge_over_the_ca
     session = x402_session(wallet, max_amount_usd=0.05)
 
     with pytest.raises(PaymentError, match="exceeds the configured max_amount_usd cap"):
+        session.get("https://example.com/paid")
+
+
+@responses.activate
+def test_x402_session_with_max_amount_usd_refuses_an_unrecognized_asset_even_if_amount_looks_small():
+    # A $50 charge expressed as if on a 2-decimal asset is "5000" atomic
+    # units — numerically far below a $0.50 cap computed assuming
+    # 6-decimal USDC (500000). Blindly comparing raw numbers would let
+    # this through; verifying the asset itself must refuse it instead.
+    responses.add(
+        responses.GET,
+        "https://example.com/paid",
+        status=402,
+        headers={
+            "PAYMENT-REQUIRED": _payment_required_header(
+                "5000", asset="0x000000000000000000000000000000000000dd"
+            )
+        },
+    )
+
+    wallet = create_spend_wallet()
+    session = x402_session(wallet, max_amount_usd=0.5)
+
+    with pytest.raises(PaymentError):
         session.get("https://example.com/paid")

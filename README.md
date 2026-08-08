@@ -130,8 +130,13 @@ expected gets paid in full, silently. With `max_amount_usd` set, a payment
 requirement above the cap is filtered out before signing (via a real
 `x402ClientSync` policy, not a client-side amount check bolted on after
 the fact), and if that leaves nothing payable, the request raises instead
-of proceeding. Assumes the asset is USDC (6 decimals) — the only asset
-x402's "exact" scheme settles today.
+of proceeding.
+
+The cap only evaluates a requirement whose asset is a known 6-decimal
+Circle USDC deployment (Base mainnet or Base Sepolia) — anything else is
+excluded rather than evaluated with a guessed decimal count, since
+guessing wrong could make a genuinely large charge on a different-decimals
+asset look small enough to slip through.
 
 ## API
 
