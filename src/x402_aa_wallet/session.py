@@ -38,39 +38,89 @@ _KNOWN_USDC_ADDRESSES = {
 }
 
 
-def _max_amount_usd_policy(max_amount_usd: float):
-    """Refuse (raise) rather than pay any requirement above the cap —
-    a real x402Client policy (see register_policy), not a client-side
-    amount check bolted on after signing. Mirrors the TypeScript
-    implementation's behavior and error message exactly."""
-    cap_atomic = round(max_amount_usd * 10**_USDC_DECIMALS)
+def _is_verified_usdc(r: Any) -> bool:
+    known_usdc = _KNOWN_USDC_ADDRESSES.get(r.network)
+    if known_usdc is None or r.asset.lower() != known_usdc:
+        return False
+    # A negative amount is malformed. uint256 encoding would reject it
+    # downstream anyway, but a spend policy should never call it payable.
+    return int(r.get_amount()) >= 0
 
-    def _is_affordable(r: Any) -> bool:
-        known_usdc = _KNOWN_USDC_ADDRESSES.get(r.network)
-        if known_usdc is None or r.asset.lower() != known_usdc:
-            return False
-        return int(r.get_amount()) <= cap_atomic
+
+def _describe(requirements: list[Any]) -> str:
+    return ", ".join(
+        f"{r.get_amount()} atomic units of {r.asset} on {r.network}" for r in requirements
+    )
+
+
+def _payment_policy(max_amount_usd: float | None, max_total_usd: float | None):
+    """Refuse (raise) rather than pay any requirement that fails asset
+    verification, the per-call cap, or the cumulative session budget — a
+    real x402Client policy (see register_policy), not a client-side amount
+    check bolted on after signing. Mirrors the TypeScript implementation's
+    behavior exactly."""
+    per_call_cap_atomic = (
+        round(max_amount_usd * 10**_USDC_DECIMALS) if max_amount_usd is not None else None
+    )
+    total_cap_atomic = (
+        round(max_total_usd * 10**_USDC_DECIMALS) if max_total_usd is not None else None
+    )
+    # Cumulative authorization ledger for this session. Counted at approval
+    # time (see x402_session's max_total_usd docs for why), so it only ever
+    # over-counts — never under.
+    authorized_atomic = 0
 
     def policy(_version: int, requirements: list[Any]) -> list[Any]:
-        affordable = [r for r in requirements if _is_affordable(r)]
-        if not affordable and requirements:
-            def _reason(r: Any) -> str:
-                known_usdc = _KNOWN_USDC_ADDRESSES.get(r.network)
-                if known_usdc is None or r.asset.lower() != known_usdc:
-                    return "unrecognized asset, decimals not verified"
-                return "over cap"
+        nonlocal authorized_atomic
+        if not requirements:
+            return requirements
 
-            asked = ", ".join(
-                f"{r.get_amount()} atomic units of {r.asset} on {r.network} ({_reason(r)})"
-                for r in requirements
-            )
+        verified = [r for r in requirements if _is_verified_usdc(r)]
+        if not verified:
             raise ValueError(
-                f"x402_session: every payment option ({asked}) exceeds the configured "
-                f"max_amount_usd cap of ${max_amount_usd}, or is on an asset this policy "
-                "can't verify — refusing to pay. Raise max_amount_usd if this charge is "
-                "expected, or investigate why the server is asking for more than usual."
+                f"x402_session: none of the payment options ({_describe(requirements)}) is on "
+                "a recognized Circle USDC deployment (unrecognized asset, decimals not "
+                "verified) — refusing to sign. An unverified asset cannot be measured against "
+                "a USD cap, and an EIP-3009 signature is valid for whatever token it names. "
+                "Pass allow_unknown_assets=True (with no max_amount_usd/max_total_usd) only "
+                "if this wallet holds nothing you are not willing to lose."
             )
-        return affordable
+
+        under_per_call = (
+            verified
+            if per_call_cap_atomic is None
+            else [r for r in verified if int(r.get_amount()) <= per_call_cap_atomic]
+        )
+        if not under_per_call:
+            raise ValueError(
+                f"x402_session: every payment option ({_describe(verified)}) exceeds the "
+                f"configured max_amount_usd cap of ${max_amount_usd} — refusing to pay. "
+                "Raise max_amount_usd if this charge is expected, or investigate why the "
+                "server is asking for more than usual."
+            )
+
+        if total_cap_atomic is None:
+            return under_per_call
+
+        within_budget = [
+            r
+            for r in under_per_call
+            if authorized_atomic + int(r.get_amount()) <= total_cap_atomic
+        ]
+        if not within_budget:
+            authorized_usd = authorized_atomic / 10**_USDC_DECIMALS
+            raise ValueError(
+                f"x402_session: paying any offered option ({_describe(under_per_call)}) would "
+                f"push this session past its max_total_usd budget of ${max_total_usd} "
+                f"(already authorized ${authorized_usd}) — refusing to pay. Build a new "
+                "x402_session to start a fresh budget if this spending is intended."
+            )
+        # The client settles ONE of the requirements this policy returns. To
+        # keep the ledger honest, return exactly one — the cheapest — and
+        # count it as authorized now.
+        cheapest = min(within_budget, key=lambda r: int(r.get_amount()))
+        authorized_atomic += int(cheapest.get_amount())
+        return [cheapest]
 
     return policy
 
@@ -79,6 +129,8 @@ def x402_session(
     wallet: Union[SpendWallet, LocalAccount, str],
     *,
     max_amount_usd: float | None = None,
+    max_total_usd: float | None = None,
+    allow_unknown_assets: bool = False,
     network: str = NETWORK,
 ) -> requests.Session:
     """Build a `requests.Session` that transparently pays any HTTP 402
@@ -95,10 +147,33 @@ def x402_session(
             server's 402 response asks for — a misbehaving or compromised
             merchant returning far more than expected gets paid in full,
             silently. Recommended for any caller giving an agent
-            autonomous spending. Only evaluates a requirement whose asset
-            is a known 6-decimal Circle USDC deployment (see
-            _KNOWN_USDC_ADDRESSES) — a requirement on any other asset is
-            refused outright, not evaluated with a guessed decimal count.
+            autonomous spending. Note this is PER CHALLENGE: a merchant
+            charging exactly at the cap on every request still drains
+            cap × N over N requests — pair it with ``max_total_usd`` to
+            bound the whole session.
+        max_total_usd: cumulative budget for everything this session
+            authorizes, in USD. Once authorized payments reach this
+            budget, further 402 challenges raise instead of paying — the
+            backstop ``max_amount_usd`` alone cannot provide against
+            drain-by-repetition. Accounting is at AUTHORIZATION time,
+            deliberately conservative: the amount is counted the moment
+            the policy approves a requirement for signing, not when
+            settlement is confirmed. A payment that later fails still
+            consumes budget (the signature left the process — from a
+            spend-control standpoint the money must be presumed gone).
+            The ledger lives inside this session; build a new
+            ``x402_session`` to start a fresh budget.
+        allow_unknown_assets: by default every payment requirement must
+            name a known Circle USDC deployment before this library will
+            sign anything — EVEN when no cap is set. An EIP-3009
+            authorization is valid for whatever token contract it names,
+            so without this check a merchant could induce a signature
+            moving ANY EIP-3009 token the EOA happens to hold. Pass True
+            to sign for unrecognized assets anyway — only sensible when
+            the wallet holds nothing but funds you are willing to lose,
+            and never honored while ``max_amount_usd``/``max_total_usd``
+            is set (an asset with unverified decimals cannot be measured
+            against a USD cap).
         network: override the network this wallet pays on — CAIP-2 form.
             Defaults to `NETWORK` (Base mainnet). Only Base/EVM
             "exact"-scheme payments are supported by this library today
@@ -122,7 +197,12 @@ def x402_session(
     session = requests.Session()
     x402_client = x402ClientSync()
     x402_client.register(network, ExactEvmScheme(account))
-    if max_amount_usd is not None:
-        x402_client.register_policy(_max_amount_usd_policy(max_amount_usd))
+    # The asset-verification policy is ALWAYS on unless the caller both
+    # sets no cap and explicitly opts into unknown assets. With a cap set,
+    # allow_unknown_assets is deliberately ignored: an asset with
+    # unverified decimals cannot be measured against a USD cap.
+    has_cap = max_amount_usd is not None or max_total_usd is not None
+    if has_cap or not allow_unknown_assets:
+        x402_client.register_policy(_payment_policy(max_amount_usd, max_total_usd))
     wrapRequestsWithPayment(session, x402_client)
     return session

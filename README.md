@@ -24,8 +24,9 @@ flowchart LR
 
 - 🤖 Built for ERC-4337 / account-abstraction agents
 - 💳 Automatic x402 payment handling — detect a 402, pay, retry, transparently
-- 💰 Optional `max_amount_usd` spend cap — a real enforcement boundary, not just a docs warning
-- 🔒 Non-custodial — the private key never leaves your process, and is excluded from `repr()` (safe to log the wallet by accident)
+- 💰 Optional `max_amount_usd` (per-call) and `max_total_usd` (per-session) spend caps — real enforcement boundaries, not just docs warnings
+- ✅ USDC asset verification always on — a merchant cannot get a signature for an arbitrary token contract
+- 🔒 Non-custodial — the private key never leaves your process, and is excluded from `repr()` so `print(wallet)`/tracebacks won't show it (note: `vars()`/`dataclasses.asdict()` still would — see below)
 - ⚡ Minimal dependencies (`eth-account`, `requests`, `x402`)
 - 🌐 Works against any x402-compatible API
 - 📦 Fully typed
@@ -108,7 +109,14 @@ x402 spending. Full writeup:
 - `SpendWallet` excludes `private_key` from its `repr()` — direct
   attribute access (`wallet.private_key`) still works, but
   `print(wallet)`, an unhandled exception's traceback, or a logging call
-  that stringifies the object won't show it.
+  that stringifies the object won't show it. **Know the limit:** `repr()`
+  is the only protected vector. `vars(wallet)`,
+  `dataclasses.asdict(wallet)`, and structured loggers/error reporters
+  that serialize object attributes still see the key (Python has no
+  dataclass equivalent of the TypeScript package's non-enumerable
+  property), and `wallet.account.key` always holds the raw key bytes.
+  Don't feed the wallet object to a dict-serializing sink — pass
+  `wallet.address` around instead.
 - Funding the spend wallet is **your** agent's job, using **your** agent's
   own smart-wallet infrastructure. This library never moves funds itself —
   it only tells you the address to send to and (via `get_usdc_balance`)
@@ -116,15 +124,19 @@ x402 spending. Full writeup:
 - The published package is open source. Don't trust this description —
   read `src/x402_aa_wallet/`, it's short.
 
-## Spend cap
+## Spend caps
 
-`x402_session` accepts `max_amount_usd`:
+`x402_session` accepts two independent caps:
 
 ```python
-session = x402_session(wallet, max_amount_usd=0.10)
+session = x402_session(
+    wallet,
+    max_amount_usd=0.10,  # per challenge
+    max_total_usd=5.0,    # per session
+)
 ```
 
-Without it, `x402_session` pays whatever a 402 response asks for — a
+Without a cap, `x402_session` pays whatever a 402 response asks for — a
 misbehaving or compromised merchant returning a much larger amount than
 expected gets paid in full, silently. With `max_amount_usd` set, a payment
 requirement above the cap is filtered out before signing (via a real
@@ -132,11 +144,31 @@ requirement above the cap is filtered out before signing (via a real
 the fact), and if that leaves nothing payable, the request raises instead
 of proceeding.
 
-The cap only evaluates a requirement whose asset is a known 6-decimal
+`max_amount_usd` alone is per challenge: a merchant charging exactly at
+the cap on every request still drains `cap × N` over N requests — which
+is precisely how an autonomous retry loop gets bled. `max_total_usd`
+closes that: once the payments this session has authorized reach the
+budget, further challenges raise. Accounting is at authorization time and
+deliberately conservative — a payment that later fails still consumes
+budget (the signature already left the process). Build a new
+`x402_session` to start a fresh budget.
+
+The caps only evaluate a requirement whose asset is a known 6-decimal
 Circle USDC deployment (Base mainnet or Base Sepolia) — anything else is
 excluded rather than evaluated with a guessed decimal count, since
 guessing wrong could make a genuinely large charge on a different-decimals
 asset look small enough to slip through.
+
+### Asset verification is always on
+
+Since 0.3.0 the USDC allowlist applies even with **no** cap set: an
+EIP-3009 authorization is valid for whatever token contract it names, so
+signing for an arbitrary merchant-supplied asset could move ANY EIP-3009
+token the EOA holds. A challenge on an unrecognized asset now raises by
+default. If you genuinely want the old behavior, pass
+`allow_unknown_assets=True` — it is honored only when no cap is set (an
+asset with unverified decimals cannot be measured against a USD cap), and
+only sensible when the wallet holds nothing you are not willing to lose.
 
 ## API
 
@@ -145,7 +177,7 @@ asset look small enough to slip through.
 | `create_spend_wallet()` | A new `SpendWallet(address, private_key, account)` |
 | `spend_wallet_from_private_key(key)` | Rehydrates a `SpendWallet` from a key you already have |
 | `get_usdc_balance(address, rpc_url=DEFAULT_BASE_RPC_URL)` | USDC balance (float, human units) on Base |
-| `x402_session(wallet, *, max_amount_usd=None, network=NETWORK)` | A `requests.Session` that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, an `eth_account` `LocalAccount`, or a raw private key string. `max_amount_usd` — see "Spend cap" above; `network` overrides the default `eip155:8453` (Base mainnet) |
+| `x402_session(wallet, *, max_amount_usd=None, max_total_usd=None, allow_unknown_assets=False, network=NETWORK)` | A `requests.Session` that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, an `eth_account` `LocalAccount`, or a raw private key string. Caps and asset verification — see "Spend caps" above; `network` overrides the default `eip155:8453` (Base mainnet) |
 
 `get_usdc_balance` talks to Base over plain JSON-RPC (`eth_call`) — no
 `web3.py` dependency, one read-only call. Override `rpc_url` if you run

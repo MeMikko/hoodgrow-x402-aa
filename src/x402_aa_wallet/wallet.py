@@ -49,6 +49,16 @@ class SpendWallet:
     #: traceback is exactly the kind of accidental leak this library
     #: exists to avoid. Direct attribute access (wallet.private_key) is
     #: completely unaffected — this only changes what repr() shows.
+    #:
+    #: KNOWN LIMIT — repr() is the ONLY vector this hides. Anything that
+    #: walks __dict__ still sees the key: vars(wallet),
+    #: dataclasses.asdict(wallet), json.dumps(asdict(...)), and structured
+    #: loggers / error reporters that serialize object attributes (some
+    #: structlog/Sentry processors do). eth_account's own
+    #: wallet.account.key also always holds the raw key bytes. Python
+    #: offers no dataclass equivalent of the TypeScript package's
+    #: non-enumerable property, so do not feed this object to a
+    #: dict-serializing sink — pass wallet.address around instead.
     private_key: str = field(repr=False)
     account: LocalAccount
     """Ready to pass straight into :func:`x402_aa_wallet.x402_session`."""
