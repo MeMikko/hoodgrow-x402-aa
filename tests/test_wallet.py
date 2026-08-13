@@ -27,3 +27,16 @@ def test_spend_wallet_from_private_key_rehydrates_the_same_address():
     rehydrated = spend_wallet_from_private_key(original.private_key)
     assert rehydrated.address == original.address
     assert rehydrated.private_key == original.private_key
+
+
+def test_private_key_never_appears_in_repr_or_str():
+    # The marketed accidental-log protection, pinned: dropping repr=False
+    # would pass every other test while re-exposing the key to print()/
+    # logging/tracebacks. (repr() is the ONLY protected vector — see the
+    # field's docstring for the vars()/asdict() caveat.)
+    wallet = create_spend_wallet()
+    assert wallet.private_key not in repr(wallet)
+    assert wallet.private_key not in str(wallet)
+    assert wallet.private_key not in f"{wallet}"
+    # Direct attribute access still works exactly like a plain field.
+    assert wallet.private_key.startswith("0x") and len(wallet.private_key) == 66

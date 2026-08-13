@@ -147,3 +147,105 @@ def test_x402_session_with_max_amount_usd_refuses_an_unrecognized_asset_even_if_
 
     with pytest.raises(PaymentError):
         session.get("https://example.com/paid")
+
+
+@responses.activate
+def test_x402_session_with_max_total_usd_stops_paying_once_the_budget_is_exhausted():
+    # Budget fits exactly one $0.05 payment; the second must refuse even
+    # though each individual charge is identical and "reasonable" — this
+    # is the drain-by-repetition case max_amount_usd alone cannot stop.
+    for _ in range(2):
+        responses.add(
+            responses.GET,
+            "https://example.com/paid",
+            status=402,
+            headers={"PAYMENT-REQUIRED": _payment_required_header("50000")},  # $0.05
+        )
+        responses.add(
+            responses.GET,
+            "https://example.com/paid",
+            json={"ok": True},
+            status=200,
+        )
+
+    wallet = create_spend_wallet()
+    session = x402_session(wallet, max_total_usd=0.08)
+
+    first = session.get("https://example.com/paid")
+    assert first.status_code == 200
+
+    with pytest.raises(PaymentError, match="max_total_usd budget"):
+        session.get("https://example.com/paid")
+
+
+@responses.activate
+def test_x402_session_refuses_an_unrecognized_asset_even_with_no_cap_configured():
+    # The asset allowlist must not live inside the cap option: an EIP-3009
+    # signature is valid for whatever token contract it names, so a capless
+    # session was previously willing to sign for ANY asset a merchant put
+    # in the challenge.
+    responses.add(
+        responses.GET,
+        "https://example.com/paid",
+        status=402,
+        headers={
+            "PAYMENT-REQUIRED": _payment_required_header(
+                "5000", asset="0x000000000000000000000000000000000000dd"
+            )
+        },
+    )
+
+    wallet = create_spend_wallet()
+    session = x402_session(wallet)
+
+    with pytest.raises(PaymentError, match="unrecognized asset"):
+        session.get("https://example.com/paid")
+
+
+@responses.activate
+def test_x402_session_pays_an_unrecognized_asset_only_with_the_explicit_opt_out():
+    responses.add(
+        responses.GET,
+        "https://example.com/paid",
+        status=402,
+        headers={
+            "PAYMENT-REQUIRED": _payment_required_header(
+                # 20 full bytes — this path actually signs, so the address
+                # must be valid, unlike the refusal tests above.
+                "5000", asset="0x00000000000000000000000000000000000000dd"
+            )
+        },
+    )
+    responses.add(
+        responses.GET,
+        "https://example.com/paid",
+        json={"ok": True},
+        status=200,
+    )
+
+    wallet = create_spend_wallet()
+    session = x402_session(wallet, allow_unknown_assets=True)
+    res = session.get("https://example.com/paid")
+    assert res.status_code == 200
+
+
+@responses.activate
+def test_x402_session_ignores_allow_unknown_assets_while_a_cap_is_set():
+    # An asset with unverified decimals cannot be measured against a USD
+    # cap — honoring the opt-out here would reopen the decimals bypass.
+    responses.add(
+        responses.GET,
+        "https://example.com/paid",
+        status=402,
+        headers={
+            "PAYMENT-REQUIRED": _payment_required_header(
+                "5000", asset="0x000000000000000000000000000000000000dd"
+            )
+        },
+    )
+
+    wallet = create_spend_wallet()
+    session = x402_session(wallet, max_amount_usd=0.5, allow_unknown_assets=True)
+
+    with pytest.raises(PaymentError, match="unrecognized asset"):
+        session.get("https://example.com/paid")

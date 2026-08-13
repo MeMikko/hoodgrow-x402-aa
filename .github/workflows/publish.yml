@@ -40,6 +40,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      # The release tag is cut by hand and may point at a commit CI never
+      # saw — run the suite here so an untested commit cannot reach PyPI.
+      # (Versions there are immutable; a broken release cannot be replaced.)
+      # For a package that signs payments from a real wallet, the spend-cap
+      # regression tests are exactly what must never be skipped at release.
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
       - run: pip install build
       - run: python -m build
 
